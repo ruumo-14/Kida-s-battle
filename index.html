@@ -177,8 +177,7 @@ function drawHuman(x,y,scale,color,label,walk=0){
  ctx.beginPath();
  ctx.arc(0,-27,9,Math.PI,Math.PI*2);
  ctx.fill();
- ctx.fillRect(-9,-28,4,7);
- ctx.fillRect(5,-28,4,7);
+ ctx.fillRect(-9,-28,4,7); ctx.fillRect(5,-28,4,7);
 
  // 目
  ctx.fillStyle='#202020';
@@ -358,7 +357,6 @@ function update(dt){
  lasers=lasers.filter(l=>
   l.life>0&&l.x>-20&&l.x<W+20&&l.y>-20&&l.y<H+20
  );
-
  for(let i=lasers.length-1;i>=0;i--){
   const l=lasers[i];
   if(Math.hypot(l.x-player.x,l.y-player.y)<18){
@@ -500,3 +498,65 @@ function draw(){
   ctx.fillStyle=power>0?'#ffe15b':'#40d9ff';
   ctx.beginPath();
   ctx.arc(pl
+  ctx.arc(player.x,player.y,16,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+ }
+
+ // エフェクト
+ particles.forEach(p=>{
+  ctx.globalAlpha=Math.max(0,p.life/.7);
+  ctx.fillStyle=p.color;
+  ctx.beginPath();
+  ctx.arc(p.x,p.y,3,0,Math.PI*2);
+  ctx.fill();
+ });
+ ctx.globalAlpha=1;
+
+ // パワーアップ表示
+ if(power>0){
+  ctx.fillStyle='#ffe15b';
+  ctx.font='bold 16px sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText('反撃中！',W/2,28);
+ }
+}
+
+function loop(now){
+ if(!running)return;
+ const dt=Math.min((now-last)/1000,.05);
+ last=now;
+ update(dt);
+ draw();
+ if(running)raf=requestAnimationFrame(loop);
+}
+
+// ボタン操作
+$('startBtn').addEventListener('click',start);
+$('againBtn').addEventListener('click',start);
+$('pauseBtn').addEventListener('click',()=>{
+ if(!running)return;
+ paused=true;
+ $('pause').classList.remove('hidden');
+});
+$('resumeBtn').addEventListener('click',()=>{
+ if(!running)return;
+ paused=false;
+ $('pause').classList.add('hidden');
+ last=performance.now();
+});
+$('fullBtn').addEventListener('click',()=>{
+ if(!document.fullscreenElement){
+  document.documentElement.requestFullscreen?.();
+ }else{
+  document.exitFullscreen?.();
+ }
+});
+
+// 初期表示
+resize();
+draw();
+})();
+</script>
+</body>
+</html>
