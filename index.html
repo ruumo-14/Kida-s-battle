@@ -1,0 +1,502 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>LASER DODGE</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080d22;color:white;font-family:system-ui;text-align:center;overflow:hidden}
+#game{width:100vw;height:100dvh;display:flex;flex-direction:column}
+header{padding:8px;display:flex;justify-content:space-around;align-items:center;gap:5px;font-weight:bold;background:#111b37}
+#arena{position:relative;flex:1;min-height:0;overflow:hidden}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+.overlay{position:absolute;inset:0;background:#05091bea;display:flex;align-items:center;justify-content:center;padding:20px}
+.panel{background:#111b37;border:1px solid #6375a0;border-radius:18px;padding:22px;width:min(90%,340px)}
+h1{color:#65dfff;font-size:30px;margin:5px}
+button{border:0;border-radius:12px;background:#2459bd;color:white;font-weight:bold;padding:10px 14px;font-size:15px}
+input{padding:12px;border-radius:9px;border:0;width:90%;font-size:16px}
+.hidden{display:none!important}
+footer{padding:7px;font-size:12px;color:#bdc8e8;background:#111b37}
+</style>
+</head>
+<body>
+<div id="game">
+<header>
+ <span>⭐ <b id="score">0</b></span>
+ <span>❤️ <b id="hp">3</b></span>
+ <span>🏆 <b id="best">0</b></span>
+ <button id="pauseBtn">Ⅱ</button>
+ <button id="fullBtn">⛶</button>
+</header>
+<div id="arena">
+<canvas id="cv"></canvas>
+
+<div id="menu" class="overlay">
+ <div class="panel">
+  <h1>LASER DODGE</h1>
+  <p>レーザーをよけて生き残れ！</p>
+  <p>プレイヤー名</p>
+  <input id="playerName" maxlength="12" placeholder="名前を入力">
+  <p>🔵 青コイン：+100点</p>
+  <p>⚔️ 反撃アイテム：3秒間パワーアップ！</p>
+  <p>反撃アイテムは5秒で消えるよ！</p>
+  <button id="startBtn">ゲームスタート</button>
+ </div>
+</div>
+
+<div id="over" class="overlay hidden">
+ <div class="panel">
+  <h1>GAME OVER</h1>
+  <p>スコア：<b id="finalScore">0</b></p>
+  <button id="againBtn">もう一度遊ぶ</button>
+ </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+ <div class="panel">
+  <h1>PAUSE</h1>
+  <button id="resumeBtn">ゲーム再開</button>
+ </div>
+</div>
+</div>
+<footer>画面をタッチ・スライドして移動！</footer>
+</div>
+
+<script>
+(()=>{
+const canvas=document.getElementById('cv');
+const ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+
+let W=0,H=0,player;
+let enemies=[],lasers=[],coins=[],powers=[],particles=[];
+let score=0,hp=3,best=Number(localStorage.getItem('ld_best')||0);
+let time=0,nextEnemy=15,nextPower=20,power=0,inv=0;
+let running=false,paused=false,last=0,raf=0,name='プレイヤー';
+
+$('best').textContent=best;
+
+function resize(){
+ const r=canvas.getBoundingClientRect();
+ const d=Math.min(devicePixelRatio||1,2);
+ canvas.width=Math.max(1,Math.floor(r.width*d));
+ canvas.height=Math.max(1,Math.floor(r.height*d));
+ W=canvas.width;
+ H=canvas.height;
+}
+new ResizeObserver(resize).observe(canvas);
+
+function rand(a,b){return a+Math.random()*(b-a)}
+
+// 人型の敵を作成
+function enemy(i){
+ return {
+  x:rand(35,W-35),
+  y:rand(65,H*.35),
+  vx:rand(-75,75),
+  vy:rand(20,65),
+  cool:rand(.8,2),
+  phase:rand(0,6),
+  name:'貴田元気'
+ };
+}
+
+// 人型キャラクターの描画
+function drawHuman(x,y,scale,color,label,walk=0){
+ ctx.save();
+ ctx.translate(x,y);
+ ctx.scale(scale,scale);
+
+ const step=Math.sin(walk*9)*4;
+
+ // 足
+ ctx.strokeStyle='#202b49';
+ ctx.lineWidth=5;
+ ctx.lineCap='round';
+
+ ctx.beginPath();
+ ctx.moveTo(-5,9);
+ ctx.lineTo(-7+step,20);
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.moveTo(5,9);
+ ctx.lineTo(7-step,20);
+ ctx.stroke();
+
+ // 靴
+ ctx.fillStyle='#202b49';
+ ctx.fillRect(-11+step,18,9,5);
+ ctx.fillRect(3-step,18,9,5);
+
+ // 腕
+ ctx.strokeStyle=color;
+ ctx.lineWidth=5;
+
+ ctx.beginPath();
+ ctx.moveTo(-9,-5);
+ ctx.lineTo(-14-step,-0);
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.moveTo(9,-5);
+ ctx.lineTo(14+step,-0);
+ ctx.stroke();
+
+ // 手
+ ctx.fillStyle='#f0b68c';
+ ctx.beginPath();
+ ctx.arc(-14-step,1,3,0,Math.PI*2);
+ ctx.arc(14+step,1,3,0,Math.PI*2);
+ ctx.fill();
+
+ // 胴体
+ ctx.fillStyle=color;
+ ctx.beginPath();
+ ctx.roundRect(-10,-12,20,24,5);
+ ctx.fill();
+
+ // ベルト
+ ctx.fillStyle='#f5d15b';
+ ctx.fillRect(-9,5,18,3);
+
+ // 首
+ ctx.fillStyle='#f0b68c';
+ ctx.fillRect(-3,-17,6,7);
+
+ // 頭
+ ctx.fillStyle='#f0b68c';
+ ctx.beginPath();
+ ctx.arc(0,-23,9,0,Math.PI*2);
+ ctx.fill();
+
+ // 髪
+ ctx.fillStyle='#34251f';
+ ctx.beginPath();
+ ctx.arc(0,-27,9,Math.PI,Math.PI*2);
+ ctx.fill();
+ ctx.fillRect(-9,-28,4,7);
+ ctx.fillRect(5,-28,4,7);
+
+ // 目
+ ctx.fillStyle='#202020';
+ ctx.beginPath();
+ ctx.arc(-3,-23,1.2,0,Math.PI*2);
+ ctx.arc(3,-23,1.2,0,Math.PI*2);
+ ctx.fill();
+
+ // 名前
+ ctx.fillStyle='white';
+ ctx.font='bold 10px sans-serif';
+ ctx.textAlign='center';
+ ctx.fillText(label,0,-39);
+
+ ctx.restore();
+}
+
+function burst(x,y,color,n=12){
+ for(let i=0;i<n;i++){
+  let a=rand(0,Math.PI*2);
+  let s=rand(40,180);
+  particles.push({
+   x,y,
+   vx:Math.cos(a)*s,
+   vy:Math.sin(a)*s,
+   life:rand(.25,.7),
+   color
+  });
+ }
+}
+
+function start(){
+ resize();
+ score=0;
+ hp=3;
+ time=0;
+ power=0;
+ inv=0;
+ nextEnemy=15;
+ nextPower=20;
+
+ enemies=[enemy(0),enemy(1),enemy(2)];
+ lasers=[];
+ coins=[];
+ powers=[];
+ particles=[];
+
+ player={
+  x:W/2,
+  y:H*.82,
+  targetX:W/2,
+  targetY:H*.82
+ };
+
+ name=$('playerName').value.trim()||'プレイヤー';
+ running=true;
+ paused=false;
+
+ $('menu').classList.add('hidden');
+ $('over').classList.add('hidden');
+ $('pause').classList.add('hidden');
+
+ $('score').textContent=score;
+ $('hp').textContent=hp;
+
+ last=performance.now();
+ cancelAnimationFrame(raf);
+ raf=requestAnimationFrame(loop);
+}
+
+function end(){
+ running=false;
+ $('finalScore').textContent=score;
+
+ if(score>best){
+  best=score;
+  localStorage.setItem('ld_best',best);
+ }
+ $('best').textContent=best;
+ $('over').classList.remove('hidden');
+}
+
+function defeat(i){
+ const e=enemies[i];
+ burst(e.x,e.y,'#ffcf5c',24);
+ score+=500;
+ enemies.splice(i,1);
+}
+
+function damage(){
+ if(inv>0||power>0)return;
+
+ hp--;
+ inv=1.2;
+ burst(player.x,player.y,'#ff5555',14);
+ $('hp').textContent=hp;
+
+ if(hp<=0)end();
+}
+
+function shoot(e){
+ const dx=player.x-e.x;
+ const dy=player.y-e.y;
+ const d=Math.hypot(dx,dy)||1;
+
+ lasers.push({
+  x:e.x,y:e.y,
+  vx:dx/d*220,
+  vy:dy/d*220,
+  life:5
+ });
+}
+
+function moveTo(e){
+ const r=canvas.getBoundingClientRect();
+ player.targetX=(e.clientX-r.left)/r.width*W;
+ player.targetY=(e.clientY-r.top)/r.height*H;
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ if(running&&!paused)moveTo(e);
+});
+canvas.addEventListener('pointermove',e=>{
+ if(e.buttons&&running&&!paused)moveTo(e);
+});
+
+function update(dt){
+ if(!running||paused)return;
+
+ time+=dt;
+ if(inv>0)inv-=dt;
+ if(power>0)power-=dt;
+
+ while(time>=nextEnemy){
+  enemies.push(enemy(enemies.length));
+  nextEnemy+=15;
+ }
+
+ while(time>=nextPower){
+  powers.push({
+   x:rand(35,W-35),
+   y:rand(H*.2,H*.7),
+   age:0,
+   phase:0
+  });
+  nextPower+=20;
+ }
+
+ // プレイヤー移動
+ player.x+=(player.targetX-player.x)*Math.min(1,dt*12);
+ player.y+=(player.targetY-player.y)*Math.min(1,dt*12);
+ player.x=Math.max(18,Math.min(W-18,player.x));
+ player.y=Math.max(18,Math.min(H-18,player.y));
+
+ // 敵の移動と攻撃
+ enemies.forEach(e=>{
+  e.phase+=dt;
+  e.x+=e.vx*dt;
+  e.y+=e.vy*dt;
+
+  if(e.x<25||e.x>W-25)e.vx*=-1;
+  if(e.y<35||e.y>H*.45)e.vy*=-1;
+
+  e.cool-=dt;
+  if(e.cool<=0){
+   shoot(e);
+   e.cool=Math.max(.65,rand(1.1,2.2)-time*.006);
+  }
+ });
+
+ // レーザー
+ lasers.forEach(l=>{
+  l.x+=l.vx*dt;
+  l.y+=l.vy*dt;
+  l.life-=dt;
+ });
+ lasers=lasers.filter(l=>
+  l.life>0&&l.x>-20&&l.x<W+20&&l.y>-20&&l.y<H+20
+ );
+
+ for(let i=lasers.length-1;i>=0;i--){
+  const l=lasers[i];
+  if(Math.hypot(l.x-player.x,l.y-player.y)<18){
+   lasers.splice(i,1);
+   damage();
+  }
+ }
+
+ // 青コイン
+ for(let i=coins.length-1;i>=0;i--){
+  const c=coins[i];
+  c.age+=dt;
+
+  if(c.age>10){
+   coins.splice(i,1);
+   continue;
+  }
+
+  if(Math.hypot(c.x-player.x,c.y-player.y)<28){
+   score+=100;
+   coins.splice(i,1);
+   burst(c.x,c.y,'#49cfff',10);
+  }
+ }
+
+ // 反撃アイテム：5秒で消える
+ for(let i=powers.length-1;i>=0;i--){
+  let q=powers[i];
+  q.age+=dt;
+  q.phase+=dt*4;
+
+  if(q.age>5){
+   powers.splice(i,1);
+   continue;
+  }
+
+  if(Math.hypot(q.x-player.x,q.y-player.y)<30){
+   powers.splice(i,1);
+   power=3;
+   inv=0;
+   burst(player.x,player.y,'#ffe15b',25);
+  }
+ }
+
+ // 反撃中に敵にぶつかると撃破
+ if(power>0){
+  for(let i=enemies.length-1;i>=0;i--){
+   if(Math.hypot(enemies[i].x-player.x,enemies[i].y-player.y)<38){
+    defeat(i);
+   }
+  }
+ }
+
+ // コインを定期的に出す
+ if(Math.random()<dt*.25){
+  coins.push({x:rand(25,W-25),y:rand(H*.2,H*.8),age:0});
+ }
+
+ particles.forEach(p=>{
+  p.x+=p.vx*dt;
+  p.y+=p.vy*dt;
+  p.life-=dt;
+ });
+ particles=particles.filter(p=>p.life>0);
+
+ $('score').textContent=score;
+ $('hp').textContent=hp;
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ ctx.fillStyle='#080d22';
+ ctx.fillRect(0,0,W,H);
+
+ // 背景
+ for(let i=0;i<45;i++){
+  let x=(i*97+Math.floor(time*12))%W;
+  let y=(i*173+Math.floor(time*30))%H;
+  ctx.fillStyle='#27375f';
+  ctx.fillRect(x,y,2,2);
+ }
+
+ // レーザー
+ lasers.forEach(l=>{
+  ctx.save();
+  ctx.shadowBlur=18;
+  ctx.shadowColor='#ff3f9b';
+  ctx.strokeStyle='#ff65b5';
+  ctx.lineWidth=5;
+  ctx.beginPath();
+  ctx.moveTo(l.x,l.y);
+  ctx.lineTo(l.x-l.vx*.07,l.y-l.vy*.07);
+  ctx.stroke();
+  ctx.restore();
+ });
+
+ // 青コイン
+ coins.forEach(c=>{
+  ctx.fillStyle='#39cfff';
+  ctx.beginPath();
+  ctx.arc(c.x,c.y,11,0,7);
+  ctx.fill();
+  ctx.fillStyle='white';
+  ctx.font='bold 12px sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText('+',c.x,c.y+4);
+ });
+
+ // 反撃アイテム
+ powers.forEach(q=>{
+  ctx.fillStyle='#f6c936';
+  ctx.beginPath();
+  ctx.arc(q.x,q.y,17+Math.sin(q.phase)*2,0,7);
+  ctx.fill();
+  ctx.fillStyle='#382700';
+  ctx.font='bold 19px sans-serif';
+  ctx.textAlign='center';
+  ctx.fillText('⚔',q.x,q.y+7);
+  ctx.fillStyle='white';
+  ctx.font='bold 12px sans-serif';
+  ctx.fillText('反撃',q.x,q.y+32);
+ });
+
+ // 人型の敵「貴田元気」
+ enemies.forEach(e=>{
+  drawHuman(e.x,e.y,1,'#e83f55','貴田元気',e.phase);
+ });
+
+ // プレイヤー
+ if(player){
+  ctx.save();
+  if(power>0){
+   ctx.shadowBlur=28;
+   ctx.shadowColor='#ffe15b';
+  }
+  if(inv>0&&Math.floor(time*15)%2===0){
+   ctx.globalAlpha=.45;
+  }
+  ctx.fillStyle=power>0?'#ffe15b':'#40d9ff';
+  ctx.beginPath();
+  ctx.arc(pl
